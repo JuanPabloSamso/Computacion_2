@@ -1,6 +1,7 @@
 import sys
 from PIL import Image
 import socket
+import time
 
 # Get the scale factor and the image name from the socket
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
@@ -21,6 +22,7 @@ except Exception as e:
 
 # Send a message to the main server to notify that the image processing is done
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+    time.sleep(5)
     client_socket.connect(('localhost', 12345))  # Assuming the main server is listening on localhost:12345
     client_socket.send(b'Image processing done')
 

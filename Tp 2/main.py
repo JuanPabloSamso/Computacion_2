@@ -51,7 +51,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         
         # Wait for the child process to finish
         os.waitpid(pid, 0)
-        
+
         # Create a socket to listen for a message from resize.py
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.bind(('localhost', 12345))
@@ -60,11 +60,20 @@ class RequestHandler(BaseHTTPRequestHandler):
             with conn:
                 data = conn.recv(1024)
                 if data == b'Image processing done':
+                    # Send the response 200 and the headers to the client
+                    self.send_response(200)
+                    self.end_headers()
                     # Send the processed image to the client
                     with open('image.jpg', 'rb') as f:
-                        self.send_response(200)
-                        self.end_headers()
                         self.wfile.write(f.read())
+            # Close the connection with the socket that sent the message
+            conn.close()
+        # Shutdown the server that listens on port 12345
+        server_socket.shutdown(socket.SHUT_RDWR)
+                        
+
+                        
+        
 
 def main():
    
@@ -88,3 +97,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
