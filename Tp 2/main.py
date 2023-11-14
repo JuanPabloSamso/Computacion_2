@@ -1,39 +1,58 @@
+import os
+import socket
+import sys
 import argparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import os, socket
-from PIL import Image
-from multiprocessing import Process, Queue, Event
-from urllib.parse import parse_qs
+import cgi
+import PIL.Image as Image
 
-def convert_to_grayscale(image_path, q, event):
-    with Image.open(image_path) as image:
-        grayscale_image = image.convert('L')
-        q.put(grayscale_image)
-    event.set()
-
-def create_process(imagen_cliente, q, event):
-    p = Process(target=convert_to_grayscale, args=(imagen_cliente, q, event))
-    p.start()
-    event.wait()  # Espera hasta que la conversiÃ³n de la imagen haya terminado
-    p.join()
 
 class RequestHandler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        q = Queue()
-        content_length = int(self.headers['Content-Length'])
-        post_data = self.rfile.read(content_length)
-        data = parse_qs(post_data.decode())
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'<html><body><h1>TP2 - Procesa imagenes</h1>')
+        self.wfile.write(b'<form enctype="multipart/form-data" method="post">')
+        self.wfile.write(b'<p>Archivo: <input type="file" name="file"></p>')
+        self.wfile.write(b'<p>Escala: <input type="number" name="scale" min="0" max="1" step="0.01"></p>')
+        self.wfile.write(b'<p><input type="submit" value="Enviar"></p>')
+        self.wfile.write(b'</form></body></html>')
 
-        imagen_recibida = data.get('imagen', [''])[0]
-        print(imagen_recibida)
+    def do_POST(self):
+        # Use cgi to parse the multipart/form-data
+        form = cgi.FieldStorage(
+            fp=self.rfile,
+            headers=self.headers,
+            environ={'REQUEST_METHOD': 'POST',
+                     'CONTENT_TYPE': self.headers['Content-Type'],
+                     })
         
-        event = Event() 
-        create_process(imagen_recibida, q, event)
-        imagen_convertida = q.get()
+        # Get the file and the scale factor from the form
+        file_item = form['file']
+        scale = form['scale'].value
         
-        imagen_convertida.save('imagen_convertida.jpg')
-     
-            # Create a socket to listen for a message from resize.py
+        # Save the file to a temporary location
+        image_name = 'image.jpg'
+        with open(image_name, 'wb') as f:
+            f.write(file_item.file.read())
+            
+        # Create a child process to convert the image to grayscale
+        pid = os.fork()
+        if pid == 0:  # Child process
+            with Image.open(image_name) as image:
+                grayscale_image = image.convert('L')
+                grayscale_image.save(image_name)
+            # Create a socket to send the scale factor and the image name to resize.py
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client_socket:
+                client_socket.connect(('localhost', 12346))  # Assuming the scaling server is listening on localhost:12346
+                client_socket.send(f'{scale} image.jpg'.encode())
+            sys.exit(0)  # Exit the child process
+        
+        # Wait for the child process to finish
+        os.waitpid(pid, 0)
+        
+        # Create a socket to listen for a message from resize.py
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
             server_socket.bind(('localhost', 12345))
             server_socket.listen(1)
@@ -41,14 +60,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             with conn:
                 data = conn.recv(1024)
                 if data == b'Image processing done':
+                    # Send the processed image to the client
                     with open('image.jpg', 'rb') as f:
                         self.send_response(200)
                         self.end_headers()
                         self.wfile.write(f.read())
-        
-        self.send_response(200)
-        self.end_headers()
-
 
 def main():
    
